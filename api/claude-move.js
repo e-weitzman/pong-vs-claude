@@ -2,6 +2,21 @@ import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// Simulate ball bouncing to the AI paddle wall and return predicted Y.
+function predictBallY(ballX, ballY, ballVX, ballVY, canvasH, paddleW) {
+  if (ballVX <= 0) return canvasH / 2;
+  const BALL_R = 8;
+  const targetX = 700 - 24 - paddleW;
+  let x = ballX, y = ballY, vx = ballVX, vy = ballVY;
+  let steps = 0;
+  while (x < targetX && steps < 2000) {
+    x += vx; y += vy; steps++;
+    if (y - BALL_R < 0)        { y = BALL_R;            vy =  Math.abs(vy); }
+    if (y + BALL_R > canvasH)  { y = canvasH - BALL_R;  vy = -Math.abs(vy); }
+  }
+  return Math.max(0, Math.min(canvasH, y));
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -9,30 +24,27 @@ export default async function handler(req, res) {
 
   const { ballX, ballY, ballVX, ballVY, aiPaddleY, playerPaddleY, canvasH, paddleH } = req.body;
 
-  if (ballX === undefined || ballY === undefined || ballVX === undefined || ballVY === undefined || aiPaddleY === undefined) {
+  if (ballX === undefined || ballY === undefined || ballVX === undefined || ballVY === undefined) {
     return res.status(400).json({ error: "Missing game state fields" });
   }
 
-  const prompt = `You are the AI paddle controller for a Pong game. Analyze the game state and decide how to move your paddle.
+  const localTargetY = predictBallY(ballX, ballY, ballVX, ballVY, canvasH, paddleH);
+
+  const prompt = `You are the AI brain for a Pong paddle. Predict exactly where the ball will be when it reaches your paddle wall.
 
 GAME STATE:
-- Canvas height: ${canvasH}px
+- Canvas: 700 x ${canvasH}px
 - Ball position: x=${Math.round(ballX)}, y=${Math.round(ballY)}
 - Ball velocity: vx=${Number(ballVX).toFixed(2)}, vy=${Number(ballVY).toFixed(2)}
-- Your paddle (right side) top-y: ${Math.round(aiPaddleY)}
-- Your paddle height: ${paddleH}px
-- Your paddle center-y: ${Math.round(aiPaddleY + paddleH / 2)}
-- Player paddle (left) top-y: ${Math.round(playerPaddleY)}
+- Your paddle face x: ${700 - 24 - paddleH}px
+- Ball radius: 8px
 
-RULES:
-- Ball moves toward you when ballVX > 0
-- Your goal: keep your paddle center aligned with where the ball will arrive
-- Predict the ball's trajectory considering bounces off top (y=0) and bottom (y=${canvasH}) walls
-- Respond ONLY with one of three exact strings: "UP", "DOWN", or "STAY"
-- Move UP if the ball will arrive above your paddle center
-- Move DOWN if the ball will arrive below your paddle center
-- STAY if well-aligned (within 15px)
-- Be strategic — predict, don't just chase`;
+TASK:
+Simulate the ball moving step by step (add vx to x, vy to y each step). When y goes below 0 or above ${canvasH}, reflect vy. Stop when x reaches ${700 - 24 - paddleH}.
+
+If ballVX <= 0 (ball moving away from you), return ${Math.round(canvasH / 2)}.
+
+Respond with ONLY a single integer — the predicted Y. No words, no punctuation.`;
 
   try {
     const message = await client.messages.create({
@@ -41,15 +53,16 @@ RULES:
       messages: [{ role: "user", content: prompt }],
     });
 
-    const raw = message.content[0]?.text?.trim().toUpperCase() || "STAY";
-    const decision = ["UP", "DOWN", "STAY"].includes(raw) ? raw : "STAY";
+    const raw = message.content[0]?.text?.trim().replace(/[^\d]/g, "");
+    const parsed = parseInt(raw, 10);
 
-    return res.status(200).json({ decision });
+    if (!isNaN(parsed) && parsed >= 0 && parsed <= canvasH) {
+      return res.status(200).json({ targetY: parsed });
+    }
+    return res.status(200).json({ targetY: localTargetY, fallback: true });
+
   } catch (err) {
     console.error("Claude API error:", err.message);
-    const paddleCenter = aiPaddleY + paddleH / 2;
-    const diff = ballY - paddleCenter;
-    const decision = diff < -10 ? "UP" : diff > 10 ? "DOWN" : "STAY";
-    return res.status(200).json({ decision, fallback: true });
+    return res.status(200).json({ targetY: localTargetY, fallback: true });
   }
 }
