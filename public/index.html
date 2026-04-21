@@ -410,7 +410,11 @@ async function askClaude() {
       `claude: ${thought}${data.fallback ? ' (local fallback)' : ''}`;
     setAIStatus('ACTIVE', false);
   } catch {
-    setAIStatus('OFFLINE', false);
+    // Local fallback: track ball directly
+    const paddleCenter = ai.y + PAD_H / 2;
+    const diff = ball.y - paddleCenter;
+    aiDecision = diff < -10 ? 'UP' : diff > 10 ? 'DOWN' : 'STAY';
+    setAIStatus('LOCAL', false);
     document.getElementById('thought').textContent = 'claude: using local logic';
   } finally {
     aiThinking = false;
@@ -433,9 +437,11 @@ function update(now) {
   // Ask Claude periodically
   if (now - lastAICall > AI_INTERVAL_MS) { lastAICall = now; askClaude(); }
 
-  // Apply AI decision
-  if (aiDecision === 'UP')   ai.y = Math.max(0,        ai.y - PAD_SPEED);
-  if (aiDecision === 'DOWN') ai.y = Math.min(H - PAD_H, ai.y + PAD_SPEED);
+  // Apply AI decision (one-shot: consume and reset so paddle doesn't lock to a wall)
+  const move = aiDecision;
+  aiDecision = 'STAY';
+  if (move === 'UP')   ai.y = Math.max(0,        ai.y - PAD_SPEED);
+  if (move === 'DOWN') ai.y = Math.min(H - PAD_H, ai.y + PAD_SPEED);
 
   // Ball movement
   ball.x += ball.vx;
