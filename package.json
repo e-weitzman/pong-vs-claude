@@ -1,0 +1,9 @@
+{
+  "name": "pong-vs-claude",
+  "version": "1.0.0",
+  "description": "Pong game where you play against Claude AI — deployed via Vercel + GitHub",
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.39.0"
+  }
+}

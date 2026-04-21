@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PONG vs CLAUDE</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --green: #00ff88;
+      --green-dim: #00994d;
+      --green-glow: rgba(0, 255, 136, 0.4);
+      --bg: #030a05;
+      --panel: #050f08;
+      --border: #0a2a14;
+      --text: #00ff88;
+      --text-dim: #007a42;
+      --amber: #ffb700;
+      --red: #ff3a3a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 100;
+    }
+
+    /* CRT vignette */
+    body::after {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 60%, rgba(0,0,0,0.7) 100%);
+      pointer-events: none;
+      z-index: 99;
+    }
+
+    .wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ── HEADER ── */
+    header {
+      text-align: center;
+    }
+
+    .game-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(28px, 5vw, 48px);
+      font-weight: 900;
+      letter-spacing: 0.25em;
+      color: var(--green);
+      text-shadow: 0 0 20px var(--green-glow), 0 0 40px var(--green-glow);
+      animation: flicker 8s infinite;
+    }
+
+    .game-byline {
+      font-size: 12px;
+      letter-spacing: 0.2em;
+      color: #a090ff;
+      margin-top: 6px;
+      font-family: 'Share Tech Mono', monospace;
+      text-shadow: 0 0 8px rgba(160,144,255,0.4);
+    }
+
+    .game-subtitle {
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    @keyframes flicker {
+      0%, 95%, 100% { opacity: 1; }
+      96% { opacity: 0.85; }
+      97% { opacity: 1; }
+      98% { opacity: 0.9; }
+    }
+
+    /* ── SCOREBOARD ── */
+    .scoreboard {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      font-family: 'Orbitron', sans-serif;
+    }
+
+    .player-label {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    .score {
+      font-size: 48px;
+      font-weight: 700;
+      text-shadow: 0 0 15px var(--green-glow);
+      line-height: 1;
+    }
+
+    .score-divider {
+      font-size: 32px;
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
+    .score-block { text-align: center; }
+    .score-block.ai .player-label { color: #7c6fff; }
+    .score-block.ai .score { color: #a090ff; text-shadow: 0 0 15px rgba(160,144,255,0.5); }
+
+    /* ── CANVAS CONTAINER ── */
+    .canvas-wrap {
+      position: relative;
+      border: 1px solid var(--border);
+      box-shadow:
+        0 0 0 1px var(--green-dim),
+        0 0 30px rgba(0,255,136,0.15),
+        inset 0 0 60px rgba(0,0,0,0.5);
+    }
+
+    canvas {
+      display: block;
+      background: var(--bg);
+    }
+
+    /* ── STATUS BAR ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.1em;
+      padding: 0 4px;
+    }
+
+    .ai-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .ai-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green-dim);
+      animation: pulse 2s infinite;
+    }
+
+    .ai-dot.thinking {
+      background: var(--amber);
+      animation: pulse-fast 0.4s infinite;
+    }
+
+    @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+    @keyframes pulse-fast { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
+
+    /* ── OVERLAY ── */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(3, 10, 5, 0.88);
+      z-index: 10;
+    }
+
+    .overlay.hidden { display: none; }
+
+    .overlay-title {
+      font-family: 'Orbitron', sans-serif;
+      font-size: clamp(20px, 3vw, 32px);
+      font-weight: 700;
+      color: var(--green);
+      text-shadow: 0 0 20px var(--green-glow);
+      margin-bottom: 12px;
+      letter-spacing: 0.15em;
+    }
+
+    .overlay-sub {
+      font-size: 12px;
+      color: var(--text-dim);
+      letter-spacing: 0.2em;
+      margin-bottom: 8px;
+    }
+
+    .overlay-key {
+      margin-top: 24px;
+      font-size: 13px;
+      color: var(--green-dim);
+      letter-spacing: 0.1em;
+      animation: blink 1.2s step-end infinite;
+    }
+
+    @keyframes blink { 0%,100%{opacity:1;} 50%{opacity:0;} }
+
+    /* ── CONTROLS HINT ── */
+    .controls {
+      font-size: 11px;
+      color: var(--text-dim);
+      letter-spacing: 0.12em;
+      text-align: center;
+    }
+
+    /* ── CLAUDE THOUGHT BUBBLE ── */
+    .thought {
+      min-height: 18px;
+      font-size: 11px;
+      color: #7c6fff;
+      letter-spacing: 0.05em;
+      text-align: right;
+      transition: opacity 0.3s;
+    }
+  </style>
+</head>
+<body>
+
+<div class="wrapper">
+  <header>
+    <div class="game-title">PONG</div>
+    <div class="game-byline">Eric Weitzman &nbsp;·&nbsp; CPS3500</div>
+    <div class="game-subtitle">VS CLAUDE AI &nbsp;·&nbsp; TERMINAL EDITION</div>
+  </header>
+
+  <div class="scoreboard">
+    <div class="score-block you">
+      <div class="player-label">YOU</div>
+      <div class="score" id="score-you">0</div>
+    </div>
+    <div class="score-divider">:</div>
+    <div class="score-block ai">
+      <div class="player-label">CLAUDE</div>
+      <div class="score" id="score-ai">0</div>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="pong" width="700" height="450"></canvas>
+    <div class="overlay" id="overlay">
+      <div class="overlay-title" id="overlay-title">PONG vs CLAUDE</div>
+      <div class="overlay-sub" id="overlay-sub">ANTHROPIC AI-CONTROLLED OPPONENT</div>
+      <div class="overlay-key" id="overlay-key">[ PRESS SPACE OR CLICK TO START ]</div>
+    </div>
+  </div>
+
+  <div class="status-bar">
+    <div class="controls">W/S or ↑/↓ to move &nbsp;·&nbsp; SPACE to pause</div>
+    <div class="ai-status">
+      <div class="ai-dot" id="ai-dot"></div>
+      <span id="ai-status-text">CLAUDE READY</span>
+    </div>
+  </div>
+
+  <div class="thought" id="thought"></div>
+</div>
+
+<script>
+const canvas = document.getElementById('pong');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// ── CONSTANTS ──
+const PAD_W = 12, PAD_H = 80, PAD_SPEED = 6;
+const BALL_R = 8;
+const AI_INTERVAL_MS = 180;
+const WIN_SCORE = 7;
+
+// ── STATE ──
+let state = 'waiting';
+let scoreYou = 0, scoreAI = 0;
+let aiDecision = 'STAY';
+let aiThinking = false;
+let lastAICall = 0;
+
+let player = { y: H/2 - PAD_H/2 };
+let ai     = { y: H/2 - PAD_H/2 };
+let ball   = newBall();
+let keys   = {};
+
+// ── BALL ──
+function newBall() {
+  const speed = 5;
+  const angle = (Math.random() * 60 - 30) * Math.PI / 180;
+  const dir = Math.random() > 0.5 ? 1 : -1;
+  return { x: W/2, y: H/2, vx: Math.cos(angle) * speed * dir, vy: Math.sin(angle) * speed };
+}
+
+// ── INPUT ──
+document.addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (state === 'waiting' || state === 'gameover') startGame();
+    else if (state === 'playing') state = 'paused';
+    else if (state === 'paused')  state = 'playing';
+  }
+});
+document.addEventListener('keyup', e => { keys[e.code] = false; });
+canvas.parentElement.addEventListener('click', () => {
+  if (state === 'waiting' || state === 'gameover') startGame();
+  else if (state === 'paused') state = 'playing';
+});
+
+// ── GAME CONTROL ──
+function startGame() {
+  scoreYou = 0; scoreAI = 0;
+  updateScoreDOM();
+  ball = newBall();
+  player.y = H/2 - PAD_H/2;
+  ai.y     = H/2 - PAD_H/2;
+  state = 'playing';
+  document.getElementById('overlay').classList.add('hidden');
+  document.getElementById('thought').textContent = '';
+}
+
+function resetRound(scorer) {
+  if (scorer === 'you') scoreYou++;
+  else scoreAI++;
+  updateScoreDOM();
+  if (scoreYou >= WIN_SCORE || scoreAI >= WIN_SCORE) {
+    endGame(scoreYou >= WIN_SCORE ? 'you' : 'ai');
+    return;
+  }
+  ball = newBall();
+  state = 'paused';
+  setTimeout(() => { if (state === 'paused') state = 'playing'; }, 900);
+}
+
+function endGame(winner) {
+  state = 'gameover';
+  const overlay = document.getElementById('overlay');
+  overlay.classList.remove('hidden');
+  const t = document.getElementById('overlay-title');
+  const s = document.getElementById('overlay-sub');
+  const k = document.getElementById('overlay-key');
+  if (winner === 'you') {
+    t.textContent = 'YOU WIN!';
+    t.style.color = '#00ff88';
+    s.textContent = `${scoreYou} – ${scoreAI} · You outplayed the AI`;
+  } else {
+    t.textContent = 'CLAUDE WINS';
+    t.style.color = '#a090ff';
+    s.textContent = `${scoreAI} – ${scoreYou} · The AI was too precise`;
+  }
+  k.textContent = '[ PRESS SPACE TO PLAY AGAIN ]';
+}
+
+function updateScoreDOM() {
+  document.getElementById('score-you').textContent = scoreYou;
+  document.getElementById('score-ai').textContent  = scoreAI;
+}
+
+// ── CLAUDE AI PADDLE ──
+async function askClaude() {
+  if (aiThinking) return;
+  aiThinking = true;
+  setAIStatus('THINKING', true);
+
+  try {
+    const res = await fetch('/api/claude-move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ballX: ball.x, ballY: ball.y, ballVX: ball.vx, ballVY: ball.vy,
+        aiPaddleY: ai.y, playerPaddleY: player.y, canvasH: H, paddleH: PAD_H,
+      }),
+    });
+    const data = await res.json();
+    aiDecision = data.decision || 'STAY';
+
+    const thought = aiDecision === 'UP'   ? '↑ moving up'
+                  : aiDecision === 'DOWN' ? '↓ moving down'
+                  : '· holding position';
+    document.getElementById('thought').textContent =
+      `claude: ${thought}${data.fallback ? ' (local fallback)' : ''}`;
+    setAIStatus('ACTIVE', false);
+  } catch {
+    setAIStatus('OFFLINE', false);
+    document.getElementById('thought').textContent = 'claude: using local logic';
+  } finally {
+    aiThinking = false;
+  }
+}
+
+function setAIStatus(text, thinking) {
+  document.getElementById('ai-status-text').textContent = `CLAUDE ${text}`;
+  document.getElementById('ai-dot').className = 'ai-dot' + (thinking ? ' thinking' : '');
+}
+
+// ── UPDATE ──
+function update(now) {
+  if (state !== 'playing') return;
+
+  // Player input
+  if (keys['KeyW'] || keys['ArrowUp'])   player.y = Math.max(0,        player.y - PAD_SPEED);
+  if (keys['KeyS'] || keys['ArrowDown']) player.y = Math.min(H - PAD_H, player.y + PAD_SPEED);
+
+  // Ask Claude periodically
+  if (now - lastAICall > AI_INTERVAL_MS) { lastAICall = now; askClaude(); }
+
+  // Apply AI decision
+  if (aiDecision === 'UP')   ai.y = Math.max(0,        ai.y - PAD_SPEED);
+  if (aiDecision === 'DOWN') ai.y = Math.min(H - PAD_H, ai.y + PAD_SPEED);
+
+  // Ball movement
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Wall bounce
+  if (ball.y - BALL_R <= 0) { ball.y = BALL_R;       ball.vy =  Math.abs(ball.vy); }
+  if (ball.y + BALL_R >= H) { ball.y = H - BALL_R;   ball.vy = -Math.abs(ball.vy); }
+
+  // Player paddle (left)
+  const playerX = 24;
+  if (ball.vx < 0 && ball.x - BALL_R <= playerX + PAD_W && ball.x - BALL_R >= playerX
+      && ball.y >= player.y - BALL_R && ball.y <= player.y + PAD_H + BALL_R) {
+    ball.x = playerX + PAD_W + BALL_R;
+    const relHit = (ball.y - (player.y + PAD_H/2)) / (PAD_H/2);
+    const speed  = Math.min(Math.hypot(ball.vx, ball.vy) * 1.05, 14);
+    const angle  = relHit * 60 * Math.PI / 180;
+    ball.vx =  Math.cos(angle) * speed;
+    ball.vy =  Math.sin(angle) * speed;
+  }
+
+  // AI paddle (right)
+  const aiX = W - 24 - PAD_W;
+  if (ball.vx > 0 && ball.x + BALL_R >= aiX && ball.x + BALL_R <= aiX + PAD_W + 4
+      && ball.y >= ai.y - BALL_R && ball.y <= ai.y + PAD_H + BALL_R) {
+    ball.x = aiX - BALL_R;
+    const relHit = (ball.y - (ai.y + PAD_H/2)) / (PAD_H/2);
+    const speed  = Math.min(Math.hypot(ball.vx, ball.vy) * 1.05, 14);
+    const angle  = relHit * 60 * Math.PI / 180;
+    ball.vx = -Math.cos(angle) * speed;
+    ball.vy =  Math.sin(angle) * speed;
+  }
+
+  // Score
+  if (ball.x + BALL_R < 0) resetRound('ai');
+  if (ball.x - BALL_R > W) resetRound('you');
+}
+
+// ── DRAW ──
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // Subtle grid
+  ctx.strokeStyle = 'rgba(0,255,136,0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Center line
+  ctx.setLineDash([8, 10]);
+  ctx.strokeStyle = 'rgba(0,255,136,0.15)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(W/2, 0); ctx.lineTo(W/2, H); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Player paddle
+  ctx.fillStyle = '#00ff88';
+  ctx.shadowColor = '#00ff88';
+  ctx.shadowBlur = 12;
+  roundRect(24, player.y, PAD_W, PAD_H, 3);
+
+  // AI paddle
+  ctx.fillStyle = '#a090ff';
+  ctx.shadowColor = '#a090ff';
+  ctx.shadowBlur = 12;
+  roundRect(W - 24 - PAD_W, ai.y, PAD_W, PAD_H, 3);
+
+  // Ball
+  ctx.fillStyle = '#ffffff';
+  ctx.shadowColor = '#ffffff';
+  ctx.shadowBlur = 20;
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Paused overlay text
+  if (state === 'paused') {
+    ctx.fillStyle = 'rgba(0,255,136,0.15)';
+    ctx.font = '700 18px Orbitron, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', W/2, H/2);
+  }
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y); ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+  ctx.fill();
+}
+
+// ── LOOP ──
+function loop(now) { update(now); draw(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
